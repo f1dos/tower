@@ -16,13 +16,14 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import com.my.target.BannerAd;
+import com.my.target.ads.MyTargetView;
+import com.my.target.common.models.IAdLoadingError;
 
 public class MainActivity extends Activity {
     private WebView web;
     private LinearLayout root;
     private FrameLayout adContainer;
-    private BannerAd bannerAd;
+    private MyTargetView bannerAd;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -57,48 +58,48 @@ public class MainActivity extends Activity {
 
         adContainer = new FrameLayout(this);
         adContainer.setBackgroundColor(Color.parseColor("#12081f"));
-        int slotId = getResources().getInteger(R.integer.vk_ads_slot_id);
-        if (slotId > 0) setupBanner(slotId);
+        int adHeight = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 50, getResources().getDisplayMetrics());
+        root.addView(adContainer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, adHeight));
 
         setContentView(root);
         if (state != null) web.restoreState(state);
         else web.loadUrl("file:///android_asset/index.html");
+
+        int slotId = getResources().getInteger(R.integer.vk_ads_slot_id);
+        if (slotId > 0) setupBanner(slotId);
         immersive();
     }
 
     private void setupBanner(int slotId) {
-        bannerAd = new BannerAd(slotId, this);
-        bannerAd.setListener(new BannerAd.BannerAdListener() {
+        bannerAd = new MyTargetView(this);
+        bannerAd.setSlotId(slotId);
+        bannerAd.setAdSize(MyTargetView.AdSize.ADSIZE_320x50);
+        bannerAd.setListener(new MyTargetView.MyTargetViewListener() {
             @Override
-            public void onLoad(BannerAd ad) {
+            public void onLoad(MyTargetView view) {
                 runOnUiThread(() -> {
-                    View bannerView = ad.getView();
-                    if (bannerView == null) return;
-                    if (bannerView.getParent() instanceof android.view.ViewGroup) {
-                        ((android.view.ViewGroup) bannerView.getParent()).removeView(bannerView);
+                    if (view.getParent() instanceof android.view.ViewGroup) {
+                        ((android.view.ViewGroup) view.getParent()).removeView(view);
                     }
                     adContainer.removeAllViews();
-                    adContainer.addView(bannerView, new FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.WRAP_CONTENT,
-                            android.view.Gravity.CENTER));
-                    int height = (int) TypedValue.applyDimension(
-                            TypedValue.COMPLEX_UNIT_DIP, 60,
-                            getResources().getDisplayMetrics());
-                    if (adContainer.getParent() == null) {
-                        root.addView(adContainer, new LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT, height));
-                    }
-                    adContainer.setVisibility(View.VISIBLE);
+                            FrameLayout.LayoutParams.WRAP_CONTENT,
+                            android.view.Gravity.CENTER);
+                    adContainer.addView(view, lp);
                 });
             }
 
             @Override
-            public void onNoAd(BannerAd ad, String reason) { }
-            @Override public void onClick(BannerAd ad) { }
-            @Override public void onShow(BannerAd ad) { }
-            @Override public void onDismiss(BannerAd ad) { }
-            @Override public void onLeaveApplication(BannerAd ad) { }
+            public void onNoAd(IAdLoadingError error, MyTargetView view) {
+                android.util.Log.w("TowerAds", "Banner failed to load: " +
+                        (error == null ? "unknown error" : error.getMessage()));
+            }
+
+            @Override public void onClick(MyTargetView view) { }
+            @Override public void onShow(MyTargetView view) { }
         });
         bannerAd.load();
     }
@@ -122,6 +123,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (web == null) { finish(); return; }
         web.evaluateJavascript("(window.onAndroidBack ? window.onAndroidBack() : 'exit')", new ValueCallback<String>() {
             @Override
             public void onReceiveValue(String v) {
@@ -132,8 +134,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        if (web != null) web.evaluateJavascript("window.onAndroidPause && window.onAndroidPause()", null);
-        if (web != null) web.onPause();
+        if (web != null) {
+            web.evaluateJavascript("window.onAndroidPause && window.onAndroidPause()", null);
+            web.onPause();
+        }
         super.onPause();
     }
 
@@ -157,9 +161,13 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (bannerAd != null) {
             bannerAd.setListener(null);
+            bannerAd.destroy();
             bannerAd = null;
         }
-        if (web != null) web.destroy();
+        if (web != null) {
+            web.destroy();
+            web = null;
+        }
         super.onDestroy();
     }
 }
